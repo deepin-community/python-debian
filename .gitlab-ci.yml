@@ -1,0 +1,242 @@
+default:
+  image: debian:unstable
+
+variables:
+  PYTHON: python3
+
+### Dependency installation
+
+.depends-debian-minimal:
+  # Mandatory run-time and test-time dependencies
+  before_script:
+  - apt-get update
+  - apt-get -y install make dpkg-dev
+  - apt-get -y install python3 python3-setuptools python3-pytest zstd $OPTIONAL_DEPS $JOB_DEPS
+  variables:
+    OPTIONAL_DEPS: ""
+    JOB_DEPS: ""
+
+.depends-debian-full:
+  # Additional run-time and test-time dependencies for optional features
+  extends:
+    .depends-debian-minimal
+  variables:
+    OPTIONAL_DEPS: python3-apt gpgv binutils
+    JOB_DEPS: python3-charset-normalizer
+
+.depends-pip:
+  before_script:
+  - $PYTHON -m pip install charset-normalizer setuptools pytest $OPTIONAL_PIP_DEPS $JOB_PIP_DEPS
+  variables:
+    OPTIONAL_PIP_DEPS: ""
+    JOB_PIP_DEPS: ""
+    PIP_BREAK_SYSTEM_PACKAGES: 1
+
+### Unit testing runners
+
+.unit-tests-generic:
+  script:
+  - LC_ALL=C $PYTHON -m pytest $COVERAGE
+  - LC_ALL=C.UTF-8 $PYTHON -m pytest $COVERAGE $COVERAGE_REPORT
+  variables:
+    # Only generate coverage data and a report once in the test matrix
+    COVERAGE: ""
+    COVERAGE_REPORT: ""
+    # control whether missing tools result in test failures
+    FORBID_MISSING_APT_PKG: ""
+    FORBID_MISSING_CHARSET_NORMALIZER: ""
+    FORBID_MISSING_GPGV: ""
+    FORBID_MISSING_AR: ""
+    FORBID_MISSING_DPKG_DEB: ""
+    FORBID_MISSING_ZSTD: ""
+
+.unit-tests-debian:
+  extends:
+  - .unit-tests-generic
+
+### Unit testing configurations (Debian)
+
+unit-tests:
+  extends:
+  - .depends-debian-full
+  - .unit-tests-debian
+  after_script:
+  - python3-coverage html
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  variables:
+    # Omit --cov-report to generate a report that gitlab can pick up with its log parser
+    COVERAGE: --cov --cov-branch --cov-append
+    # Generate a coverage report for the pages
+    COVERAGE_REPORT: --cov-report=
+    JOB_DEPS: python3-pytest-cov python3-coverage python3-charset-normalizer
+    # require optional dependencies to be installed at test time
+    FORBID_MISSING_APT_PKG: "1"
+    FORBID_MISSING_CHARSET_NORMALIZER: "1"
+    FORBID_MISSING_GPGV: "1"
+    FORBID_MISSING_AR: "1"
+    FORBID_MISSING_DPKG_DEB: "1"
+    FORBID_MISSING_ZSTD: "1"
+  artifacts:
+    paths:
+      - htmlcov
+
+unit-tests-minimal:
+  extends:
+  - .depends-debian-minimal
+  - .unit-tests-debian
+
+unit-tests-stable:
+  image: debian:stable
+  extends:
+  - .depends-debian-full
+  - .unit-tests-debian
+  variables:
+    # require optional dependencies to be installed at test time
+    FORBID_MISSING_APT_PKG: "1"
+    FORBID_MISSING_GPGV: "1"
+    FORBID_MISSING_AR: "1"
+
+unit-tests-oldstable:
+  image: debian:oldstable
+  extends:
+  - .depends-debian-full
+  - .unit-tests-debian
+  before_script:
+  - !reference [.depends-debian-minimal, before_script]
+  - dpkg -r python3-pytest
+  - !reference [.depends-pip, before_script]
+  variables:
+    # require optional dependencies to be installed at test time
+    FORBID_MISSING_APT_PKG: "1"
+    FORBID_MISSING_GPGV: "1"
+    FORBID_MISSING_AR: "1"
+    JOB_DEPS: python3-pip python3-chardet
+    JOB_PIP_DEPS: pytest
+
+unit-tests-oldoldstable:
+  image: debian:oldoldstable
+  extends:
+  - unit-tests-oldstable
+
+### Unit testing configurations (non-Debian)
+
+unit-tests-truncated-debian:
+  extends:
+  - .depends-debian-minimal
+  - .unit-tests-generic
+  script:
+  - rm -f /usr/bin/ar /usr/bin/gpgv
+  - !reference [.unit-tests-generic, script]
+
+unit-tests-alpine:
+  image: python:alpine
+  extends:
+  - .depends-pip
+  - .unit-tests-generic
+
+unit-tests-fedora-minimal:
+  image: fedora:latest
+  extends:
+  - .depends-pip
+  - .unit-tests-generic
+  before_script:
+  - dnf install -y python3 python3-pip binutils
+  - !reference [.depends-pip, before_script]
+
+unit-tests-fedora:
+  image: fedora:latest
+  extends:
+  - .unit-tests-generic
+  before_script:
+  - dnf install -y python3 python3-apt python3-charset-normalizer python3-setuptools python3-pytest zstd
+
+unit-tests-wine:
+  before_script:
+  - apt-get update
+  - apt-get -y install python3-pip wine
+  - PATH=~/.local/bin/:$PATH
+  - pip install --user wenv
+  - export WENV_PYTHONVERSION=$(py3versions -v -d).0
+  - wenv init
+  - wenv python -m pip install charset-normalizer setuptools pytest
+  script:
+  - wenv python -m pytest
+  variables:
+    WENV_ARCH: win64
+    WENV_WINE_BIN_WIN64: /usr/bin/wine
+    WENV_NO_PTH_FILE: 1
+    PIP_BREAK_SYSTEM_PACKAGES: 1
+
+unit-tests-windows:
+  tags:
+  - shared-windows
+  - windows
+  - windows-1809
+  rules:
+  - if: $CI_SERVER_HOST !~ /debian.org$/
+  extends:
+  - .depends-pip
+  before_script:
+  - Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+  - choco install python3 --yes --force --no-progress
+  - refreshenv
+  - python -m pip install -U pip wheel
+  - python -m pip install charset-normalizer setuptools pytest
+  script:
+  - python -m pytest
+  variables:
+    PYTHON: python
+    PIP_BREAK_SYSTEM_PACKAGES: 1
+
+### Installation test with pip
+
+pip-install-test:
+  extends:
+  - .depends-debian-full
+  script:
+  - cp -a tests/ pyproject.toml /tmp
+  - python3 -mvenv venv
+  - . ./venv/bin/activate
+  - pip install --verbose .
+  - pip install -e ".[test]"
+  - cd /tmp
+  - python3 -m pytest tests
+  variables:
+    JOB_DEPS: git python3-pip python3-venv
+
+### Coding style checks
+
+style:
+  extends: .depends-debian-full
+  script:
+  - ./debian/rules qa
+  variables:
+    JOB_DEPS: pylint mypy python3-charset-normalizer
+
+### Documentation: build and deploy
+
+docs:
+  extends: .depends-debian-full
+  script:
+  - rm -f docs/api/*
+  - ./debian/rules doc
+  - mv build/sphinx/html/ docs/
+  variables:
+    JOB_DEPS: python3-sphinx
+  artifacts:
+    paths:
+      - docs
+
+pages:
+  stage: deploy
+  script:
+  - mv docs public
+  - mv htmlcov public/
+  dependencies:
+    - docs
+    - unit-tests
+  artifacts:
+    paths:
+    - public
+  only:
+  - master

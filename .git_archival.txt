@@ -1,0 +1,4 @@
+node: 287265c9bcb7218b38a76a1d3ac4645695d8f301
+node-date: 2025-03-11T23:24:11+11:00
+describe-name: 1.0.0-6-g287265c
+ref-names: HEAD -> master

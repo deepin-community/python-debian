@@ -85,9 +85,9 @@ Style guide
 -----------
 
  - Code should be whitespace clean, pep8 & pylint compatible;
-   a `.pylintrc` configuration file is provided is also run on
+   pylint configuration is provided in `pyproject.toml` and is also run on
    salsa.debian.org as part of the CI checks for merge requests.
-   (Where pep8 and pylintrc disagree about
+   (Where pep8 and pylint disagree about
    whitespace, follow pylint's recommendations.)
 
  - Write type annotations to help `mypy --strict` understand the types and
@@ -116,17 +116,17 @@ that those who come after you can understand both 'what' and 'why'.
 
 The tests use absolute imports and do not alter `sys.path` so that they can be
 used to test either the installed package or the current working tree. Tests
-can be run either from the top-level directory or from the lib/ directory:
+can be run either from the top-level directory:
 
 Run all tests from the top most directory of the source package::
 
-    $ python3 -m pytest -v -rsx --doctest-modules lib/
+    $ python3 -m pytest
 
 Or just run some selected tests::
 
-    $ python3 -m pytest -v -rsx --doctest-modules lib/debian/tests/test_deb822.py::TestDeb822::test_buildinfo
+    $ python3 -m pytest tests/test_deb822.py::TestDeb822::test_buildinfo
 
-    $ python3 -m pytest -v -rsx --doctest-modules debian/tests/test_deb822.py
+    $ python3 -m pytest tests/test_deb822.py
 
 For simplicity all the tests can also be run as::
 
@@ -190,9 +190,11 @@ Uploading
 ---------
 
 When uploading the package, it should be uploaded both to Debian and also to
-PyPI. Please upload the source tarball (sdist) and also an egg (bdist_egg)
-and a wheel (bdist_wheel), all built for Python 3. The python3-wheel
-package needs to be installed to build the wheel.
+PyPI. Please upload the source tarball (sdist) and also
+a wheel (bdist_wheel), all built for Python 3. The following
+packages need to be installed for this step::
+
+    python3-build python3-setuptools-scm python3-wheel
 
 The following developers have access to the PyPI project to be able to
 upload it.
@@ -204,12 +206,13 @@ upload it.
 The upload procedure is::
 
     $ ./debian/rules dist
-    $ twine upload --sign dist/python?debian-x.y.z.*
+    $ twine check --strict dist/python?debian-x.y.z.*
+    $ twine upload dist/python?debian-x.y.z.*
 
 
 Test uploads to TestPyPI can be made and tested with::
 
-    $ twine upload --sign --repository testpypi dist/python-debian-x.y.z.tar.gz
+    $ twine upload --repository testpypi dist/python-debian-x.y.z.tar.gz
     $ virtualenv python-debian-test
     $ cd python-debian-test
     $ . bin/activate
